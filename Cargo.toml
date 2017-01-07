@@ -25,4 +25,5 @@ libc = "0.2"
 compiletest_rs = "0.2.3"
 
 [build-dependencies]
+curl = "0.4.2"
 cmake = "0.1.17"

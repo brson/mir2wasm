@@ -1,6 +1,7 @@
 extern crate cmake;
+extern crate curl;
 
-use std::env;
+use curl::easy::Easy;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -8,13 +9,36 @@ use std::process::Command;
 use std::thread;
 
 /// Build from https://wasm-stat.us that we are known to work with.
-const WASM_BUILD: &'static str = "9901";
+#[cfg(target_os="linux")]
+mod config {
+    pub const DOWLOAD_WASM: bool = true;
+    pub const WASM_BUILD: &'static str = "9901";
+    pub const OS_NAME: &'static str = "linux";
+}
+
+#[cfg(target_os="macos")]
+mod config {
+    pub const DOWLOAD_WASM: bool = true;
+    pub const WASM_BUILD: &'static str = "2345";
+    pub const OS_NAME: &'static str = "mac";
+}
+
+#[cfg(not(any(target_os="linux", target_os="macos")))]
+mod config {
+    pub const DOWLOAD_WASM: bool = false;
+    pub const WASM_BUILD: &'static str = "";
+    pub const OS_NAME: &'static str = "";
+}
+
+use config::WASM_BUILD;
 
 fn main() {
     let cmake = thread::spawn(|| {
         if !Path::new("binaryen/.git").exists() {
-            Command::new("git").args(&["submodule", "update", "--init"])
-                .status().expect("error updating submodules");
+            Command::new("git")
+                .args(&["submodule", "update", "--init"])
+                .status()
+                .expect("error updating submodules");
         }
         cmake::Config::new("binaryen")
             .define("BUILD_STATIC_LIB", "ON")
@@ -22,13 +46,13 @@ fn main() {
     });
 
     let toolchain = thread::spawn(|| {
-        if env::var("HOST").unwrap().contains("linux") {
+        if config::DOWLOAD_WASM {
             update_wasm_toolchain();
         }
     });
 
     let dst = cmake.join().unwrap();
-    let _ = toolchain.join();
+    toolchain.join().expect("Error downloading Wasm toolchain");
 
     println!("cargo:rustc-link-search=native={}/build/lib", dst.display());
     println!("cargo:rustc-link-lib=static=binaryen");
@@ -36,6 +60,7 @@ fn main() {
     println!("cargo:rustc-link-lib=static=support");
     println!("cargo:rustc-link-lib=static=emscripten-optimizer");
     println!("cargo:rustc-link-lib=static=asmjs");
+    println!("cargo:rustc-link-lib=static=wasm");
 
     print_deps(Path::new("binaryen"));
 }
@@ -53,7 +78,7 @@ fn print_deps(path: &Path) {
 
 /// Downloads the wasm toolchain from https://wasm-stat.us/ if necessary.
 fn update_wasm_toolchain() {
-    const WASM_INSTALL_VER : &'static str = ".wasm-install-ver";
+    const WASM_INSTALL_VER: &'static str = ".wasm-install-ver";
 
     // Check if the right version is already in .wasm-install-ver
     if let Ok(mut file) = File::open(WASM_INSTALL_VER) {
@@ -66,20 +91,34 @@ fn update_wasm_toolchain() {
     }
 
     // If we got here, we need to update.
-    const TMP_FILE : &'static str = ".wasm-install.tbz2";
+    const TMP_FILE: &'static str = ".wasm-install.tbz2";
 
-    let url = format!("https://storage.googleapis.com/wasm-llvm/builds/git/wasm-binaries-{}.tbz2",
-                      WASM_BUILD);
+    let url = wasm_url();
     let url = url.as_str();
-    Command::new("wget").args(&[url, "-O", TMP_FILE]).status()
-        .and_then(|_| {
-            Command::new("tar").args(&["xjf", TMP_FILE]).status()
-        })
-        .and_then(|_| {
-            File::create(WASM_INSTALL_VER)
-        })
-        .and_then(|mut file| {
-            writeln!(file, "{}", WASM_BUILD)
-        })
+
+    fetch_url(url, TMP_FILE);
+    Command::new("tar")
+        .args(&["xjf", TMP_FILE])
+        .status()
+        .and_then(|_| File::create(WASM_INSTALL_VER))
+        .and_then(|mut file| writeln!(file, "{}", WASM_BUILD))
         .expect("error downloading wasm toolchain");
+}
+
+fn fetch_url(url: &str, output: &str) {
+    File::create(output).and_then(|mut file| {
+        let mut curl = Easy::new();
+        curl.url(url).expect("Error setting url");
+        curl.write_function(move |data| Ok(file.write(data).expect("Error writing data")))
+            .expect("Error setting write function");
+        curl.perform().expect("Error downloading archive");
+        Ok(())
+    }).expect("Could not open output file");
+}
+
+fn wasm_url() -> String {
+    format!("https://storage.googleapis.com/wasm-llvm/builds/{}/{}/wasm-binaries-{}.tbz2",
+            config::OS_NAME,
+            config::WASM_BUILD,
+            config::WASM_BUILD)
 }

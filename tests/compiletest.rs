@@ -279,7 +279,7 @@ impl<'a> TestSuite<'a> {
     }
 }
 
-#[cfg(target_os="linux")]
+#[cfg(any(target_os="linux", target_os="macos"))]
 fn run_in_vm(wasm: &Path, expected: &[String]) -> bool {
     let d8 = Path::new("./wasm-install/bin/d8");
     let rt = Path::new("./rt/rustrt.js");
@@ -293,7 +293,7 @@ fn run_in_vm(wasm: &Path, expected: &[String]) -> bool {
     run_and_check_output("V8", cmd, expected)
 }
 
-#[cfg(not(target_os="linux"))]
+#[cfg(not(any(target_os="linux", target_os="macos")))]
 fn run_in_vm(_wasm: &Path, _expected: &[String]) -> bool {
     true
 }
