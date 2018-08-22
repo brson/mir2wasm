@@ -1,5 +1,9 @@
 # mir2wasm
 
+**This project is not under development and does nothing useful. If you just
+want to compile Rust to WASM then the mainline Rust compiler can do that for
+you. Read https://rustwasm.github.io/book/**
+
 An experimental compiler from [Rust] to [WebAssembly], based on rustc + Rust [MIR].
 
 **This doesn't do anything useful yet.**
