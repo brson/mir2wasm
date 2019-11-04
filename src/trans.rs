@@ -149,7 +149,7 @@ impl<'e, 'tcx: 'e, 'h> Visitor<'h> for BinaryenModuleCtxt<'e, 'tcx, 'tcx> {
     fn visit_fn(&mut self, fk: FnKind<'h>, fd: &'h FnDecl, b: BodyId, s: Span, id: NodeId) {
         let did = self.tcx.hir.local_def_id(id);
 
-        let generics = self.tcx.item_generics(did);
+        let generics = self.tcx.generics_of(did);
 
         // don't translate generic functions yet
         if generics.types.len() + generics.parent_types as usize > 0 {
@@ -160,7 +160,7 @@ impl<'e, 'tcx: 'e, 'h> Visitor<'h> for BinaryenModuleCtxt<'e, 'tcx, 'tcx> {
             self.tcx.maps.mir.borrow()[&did]
         };
 
-        let sig = self.tcx.item_type(did).fn_sig();
+        let sig = self.tcx.type_of(did).fn_sig();
         let sig = sig.skip_binder();
         {
             let mut ctxt = BinaryenFnCtxt {
@@ -1110,10 +1110,10 @@ impl<'f, 'tcx: 'f, 'module: 'f> BinaryenFnCtxt<'f, 'tcx, 'tcx, 'module> {
                                         debug!("emitting Store for Enum '{:?}' discr: {:?}",
                                                adt_def,
                                                discr_val);
-                                        let discr_val =
-                                            BinaryenConst(self.func.module.module,
-                                                          //BinaryenLiteralInt32(discr_val as i32));
-                                                          BinaryenLiteralInt32(unimplemented!()));
+                                        //BinaryenLiteralInt32(discr_val as i32));
+                                        let discr_val = BinaryenLiteralInt32(unimplemented!());
+                                        let discr_val = BinaryenConst(self.func.module.module,
+                                                                      discr_val);
                                         let write_discr = BinaryenStore(self.func.module.module,
                                                                         discr_size,
                                                                         0,
@@ -1502,7 +1502,7 @@ impl<'f, 'tcx: 'f, 'module: 'f> BinaryenFnCtxt<'f, 'tcx, 'tcx, 'module> {
         } else {
             let (resolved_def_id, resolved_substs) =
                 traits::resolve_trait_method(self.tcx, fn_did, substs);
-            let ty = self.tcx.item_type(resolved_def_id);
+            let ty = self.tcx.type_of(resolved_def_id);
             // TODO: investigate rustc trans use of
             // liberate_bound_regions or similar here
             let sig = ty.fn_sig();
@@ -1558,56 +1558,65 @@ impl<'f, 'tcx: 'f, 'module: 'f> BinaryenFnCtxt<'f, 'tcx, 'tcx, 'module> {
         return (fn_sig, fn_did);
     }
 
+    fn trans_fn_def_id(&mut self,
+                       def_id: DefId,
+                       substs: &Substs<'tcx>)
+                       -> Option<(*const c_char, BinaryenType, BinaryenCallKind, bool)> {
+        let ty = self.tcx.type_of(def_id);
+        if ty.is_fn() {
+            assert!(def_id.is_local());
+            let sig = ty.fn_sig();
+            let sig = sig.skip_binder();
+
+            let mut fn_did = def_id;
+            let fn_name = self.tcx.item_path_str(fn_did);
+            let fn_sig;
+            let mut call_kind = BinaryenCallKind::Direct;
+
+            match fn_name.as_ref() {
+                "wasm::::print_i32" |
+                "wasm::::_print_i32" => {
+                    // extern wasm functions
+                    fn_sig = sig.clone();
+                    call_kind = BinaryenCallKind::Import;
+                    self.import_wasm_extern(fn_did, sig);
+                }
+                _ => {
+                    let (fn_sig_, fn_did_) = self.trans_fn(fn_did, substs, sig.clone());
+                    fn_sig = fn_sig_;
+                    fn_did = fn_did_;
+                }
+            }
+
+            let ret_ty = if !fn_sig.output().is_nil() {
+                rust_ty_to_binaryen(fn_sig.output())
+            } else {
+                BinaryenNone()
+            };
+
+            let is_never = fn_sig.output().is_never() || fn_name == "panic";
+            Some((self.fun_names[&(fn_did, fn_sig)].as_ptr(), ret_ty, call_kind, is_never))
+        } else {
+            panic!("unimplemented ty {:?} for {:?}", ty, def_id);
+        }
+    }
+
     fn trans_fn_name_direct(&mut self,
                             operand: &Operand<'tcx>)
                             -> Option<(*const c_char, BinaryenType, BinaryenCallKind, bool)> {
         match operand {
             &Operand::Constant(ref c) => {
                 match c.literal {
-                    Literal::Item { def_id, substs } => {
-                        let ty = self.tcx.item_type(def_id);
-                        if ty.is_fn() {
-                            assert!(def_id.is_local());
-                            let sig = ty.fn_sig();
-                            let sig = sig.skip_binder();
-
-                            let mut fn_did = def_id;
-                            let fn_name = self.tcx.item_path_str(fn_did);
-                            let fn_sig;
-                            let mut call_kind = BinaryenCallKind::Direct;
-
-                            match fn_name.as_ref() {
-                                "wasm::::print_i32" |
-                                "wasm::::_print_i32" => {
-                                    // extern wasm functions
-                                    fn_sig = sig.clone();
-                                    call_kind = BinaryenCallKind::Import;
-                                    self.import_wasm_extern(fn_did, sig);
-                                }
-                                _ => {
-                                    let (fn_sig_, fn_did_) =
-                                        self.trans_fn(fn_did, substs, sig.clone());
-                                    fn_sig = fn_sig_;
-                                    fn_did = fn_did_;
-                                }
+                    Literal::Item { def_id, substs } => self.trans_fn_def_id(def_id, substs),
+                    Literal::Value { ref value } => {
+                        match value {
+                            &ConstVal::Function(def_id, substs) => {
+                                self.trans_fn_def_id(def_id, substs)
                             }
-
-                            let ret_ty = if !fn_sig.output().is_nil() {
-                                rust_ty_to_binaryen(fn_sig.output())
-                            } else {
-                                BinaryenNone()
-                            };
-
-                            let is_never = fn_sig.output().is_never() || fn_name == "panic";
-                            Some((self.fun_names[&(fn_did, fn_sig)].as_ptr(),
-                                  ret_ty,
-                                  call_kind,
-                                  is_never))
-                        } else {
-                            panic!("unimplemented ty {:?} for {:?}", ty, def_id);
+                            _ => panic!("unimplemented const: {:?}", value),
                         }
                     }
-                    _ => panic!("{:?}", c),
+                    _ => panic!("unimplemented literal: {:?}", c),
                 }
             }
             _ => panic!(),

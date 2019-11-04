@@ -8,6 +8,9 @@ pub trait Sized { }
 #[lang = "copy"]
 pub trait Copy : Clone { }
 
+#[lang = "freeze"]
+unsafe trait Freeze {}
+
 pub trait Clone : Sized { }
 
 #[lang = "add"]

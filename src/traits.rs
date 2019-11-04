@@ -122,7 +122,7 @@ fn get_impl_method<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
     assert!(!substs.needs_infer());
 
     let trait_def_id = tcx.trait_id_of_impl(impl_def_id).unwrap();
-    let trait_def = tcx.lookup_trait_def(trait_def_id);
+    let trait_def = tcx.trait_def(trait_def_id);
 
     match trait_def.ancestors(impl_def_id).defs(tcx, name, ty::AssociatedKind::Method).next() {
         Some(node_item) => {
