@@ -245,9 +245,6 @@ impl<'a> TestSuite<'a> {
                 let mut cmd = std::process::Command::new(mir2wasm);
                 cmd.arg(&path);
                 cmd.arg("-Dwarnings");
-                if self.run {
-                    cmd.arg("--run");
-                }
                 cmd.arg("-o");
                 cmd.arg(&outwasm);
                 let libs = Path::new(&sysroot).join("lib");
@@ -257,12 +254,20 @@ impl<'a> TestSuite<'a> {
 
                 let expected = get_expected_outputs(&path);
 
-                if run_and_check_output("binaryen", cmd, expected.as_slice()) {
-                    if run_in_vm(&outwasm, expected.as_slice()) {
-                        pass += 1;
-                    } else {
+                // compile the .wasm
+                match cmd.output() {
+                    Ok(ref output) if output.status.success() => (),
+                    _ => {
+                        let mut stderr = stderr.lock();
+                        writeln!(stderr, "Compilation failed. Command was:").unwrap();
+                        writeln!(stderr, "{:?}", cmd).unwrap();
                         fail += 1;
+                        continue;
                     }
+                }
+
+                if run_in_vm(&outwasm, expected.as_slice()) {
+                    pass += 1;
                 } else {
                     fail += 1;
                 }
@@ -288,8 +293,7 @@ fn run_in_vm(wasm: &Path, expected: &[String]) -> bool {
     let rt = Path::new("./rt/rustrt.js");
 
     let mut cmd = std::process::Command::new(d8);
-    cmd.arg("--expose_wasm")
-        .arg(rt)
+    cmd.arg(rt)
         .arg("--")
         .arg(wasm);
 

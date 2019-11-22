@@ -114,7 +114,7 @@ impl<'module, 'name> From<FnType<'module, 'name>> for sys::BinaryenFunctionTypeR
 /// Representable types.
 ///
 /// These are types that can actually exist, for example, as a local variable.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ReprType {
     Int32,
     Int64,
@@ -254,6 +254,12 @@ impl From<usize> for sys::BinaryenIndex {
     fn from(i: usize) -> sys::BinaryenIndex {
         // TODO: make sure i fits in a u32
         sys::BinaryenIndex(i as u32)
+    }
+}
+
+impl From<u32> for sys::BinaryenIndex {
+    fn from(i: u32) -> sys::BinaryenIndex {
+        sys::BinaryenIndex(i)
     }
 }
 

@@ -26,5 +26,6 @@ extern crate env_logger;
 pub mod error;
 pub mod trans;
 mod binaryen;
+mod binops;
 mod monomorphize;
 mod traits;

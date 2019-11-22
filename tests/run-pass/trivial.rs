@@ -1,11 +1,13 @@
-//xfail
-#![feature(custom_attribute)]
+#![feature(custom_attribute, fundamental, lang_items, no_core)]
 #![allow(dead_code, unused_attributes)]
 
-#[miri_run]
+#![no_std]
+#![no_core]
+
+pub mod tinycore;
+
 fn empty() {}
 
-#[miri_run]
 fn unit_var() {
     let x = ();
     x

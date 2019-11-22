@@ -5,6 +5,12 @@
 
 let buffer = readbuffer(arguments[0]);
 
+const RUNTIME = {
+  panic: function() {
+    throw new Error("panic!");
+  }
+};
+
 let empty_function = function() {}
 let module_handler = {
     get: function(target, module_name) {
@@ -18,7 +24,11 @@ let module_handler = {
         }
         return new Proxy({}, {
             get: function(target, func_name) {
-                print("Rust requested runtime function " + module_name + "::" + func_name);
+                if (module_name == "rustrt" && RUNTIME[func_name]) {
+                  return RUNTIME[func_name];
+                }
+                print("Rust requested unknown runtime function "
+                      + module_name + "::" + func_name);
                 return empty_function;
             }
         });
@@ -26,7 +36,10 @@ let module_handler = {
 };
 let proxy_ffi = new Proxy({}, module_handler);
 
-let module = new WebAssembly.Module(buffer);
-let instance = new WebAssembly.Instance(module, proxy_ffi);
-
-instance.exports.rust_entry();
+WebAssembly.instantiate(buffer, proxy_ffi).then(result => {
+  const instance = result.instance;
+  instance.exports.rust_entry();
+}).catch(err => {
+  print(err.stack);
+  quit(1);
+})
