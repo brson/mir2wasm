@@ -1,5 +1,6 @@
 extern crate cmake;
 extern crate curl;
+extern crate num_cpus;
 
 use curl::easy::Easy;
 use std::fs::File;
@@ -42,6 +43,7 @@ fn main() {
         }
         cmake::Config::new("binaryen")
             .define("BUILD_STATIC_LIB", "ON")
+            .build_arg(format!("-j{}", num_cpus::get() + 2))
             .build()
     });
 

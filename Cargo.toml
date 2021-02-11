@@ -27,3 +27,4 @@ compiletest_rs = "0.2.5"
 [build-dependencies]
 curl = "0.4.2"
 cmake = "0.1.17"
+num_cpus = "1.2.1"
